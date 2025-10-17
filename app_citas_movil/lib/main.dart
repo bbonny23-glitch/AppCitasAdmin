@@ -1,29 +1,48 @@
 // Archivo: lib/main.dart
 
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'firebase_options.dart'; // Tu archivo de claves de conexión
+import 'admin_dashboard.dart'; // El nuevo archivo Dashboard
 
-void main() {
+// ***************************************************************
+// 1. INICIALIZACIÓN DE FIREBASE Y FUNCIÓN PRINCIPAL
+// ***************************************************************
+void main() async {
+  // Asegura que Flutter esté listo para inicializar servicios nativos
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Inicializa Firebase (ahora configurado para fallar si hay error, pero con la sintaxis correcta)
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  
+  // Ejecuta la aplicación
   runApp(const AdministradorApp());
 }
 
-// 1. EL WIDGET PRINCIPAL DE LA APLICACIÓN
+// 2. WIDGET PRINCIPAL DE LA APLICACIÓN
 class AdministradorApp extends StatelessWidget {
   const AdministradorApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Panel de Administrador',
+      title: 'Panel de Administrador de Citas',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      // La primera pantalla que se mostrará
       home: const AdminLoginPage(), 
     );
   }
 }
 
-// 2. LA PANTALLA DE INICIO DE SESIÓN
+// ***************************************************************
+// 3. PANTALLA DE INICIO DE SESIÓN (LOGIN)
+// ***************************************************************
 class AdminLoginPage extends StatefulWidget {
   const AdminLoginPage({super.key});
 
@@ -32,17 +51,16 @@ class AdminLoginPage extends StatefulWidget {
 }
 
 class _AdminLoginPageState extends State<AdminLoginPage> {
-  // Variables para guardar lo que el usuario escribe en los campos
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   String _mensajeError = '';
+  bool _isLoading = false; 
 
-  // Función que se ejecutará cuando se presione el botón de Login
-  void _iniciarSesion() {
-    // Aquí pondremos el código de conexión a Firebase
-    // Por ahora, solo muestra lo que escribimos
-    String email = _emailController.text;
-    String password = _passwordController.text;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  void _iniciarSesion() async {
+    String email = _emailController.text.trim();
+    String password = _passwordController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
       setState(() {
@@ -51,12 +69,51 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
       return;
     }
     
-    // Si la conexión fuera exitosa (simulación):
     setState(() {
-      _mensajeError = 'Intento de inicio de sesión con: $email. ¡FALTA CONECTAR A FIREBASE!';
+      _isLoading = true; 
+      _mensajeError = 'Intentando iniciar sesión...';
     });
 
-    // En un proyecto real, aquí navegaríamos a la pantalla principal
+    try {
+      await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      // Éxito: Navegar al Dashboard (CORRECCIÓN: SIN 'const' en la función)
+      setState(() {
+        _mensajeError = '¡INICIO DE SESIÓN EXITOSO!';
+      });
+
+      // ¡Navegación correcta!
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const AdminDashboard()),
+      );
+      
+    } on FirebaseAuthException catch (e) {
+      // Manejar errores comunes de autenticación
+      String errorMsg;
+      if (e.code == 'user-not-found') {
+        errorMsg = 'Usuario no encontrado. Revise el correo.';
+      } else if (e.code == 'wrong-password') {
+        errorMsg = 'Contraseña incorrecta.';
+      } else if (e.code == 'invalid-email') {
+        errorMsg = 'Formato de correo inválido.';
+      } else {
+        // Si hay un error de conexión (clave incorrecta) caerá aquí:
+        errorMsg = 'Error de conexión/autenticación: [${e.code}]';
+      }
+      
+      setState(() {
+        _mensajeError = errorMsg;
+      });
+      
+    } finally {
+      setState(() {
+        _isLoading = false; 
+      });
+    }
   }
 
   @override
@@ -79,7 +136,6 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
               ),
               const SizedBox(height: 40),
               
-              // Campo para el Correo Electrónico
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -91,10 +147,9 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
               ),
               const SizedBox(height: 20),
               
-              // Campo para la Contraseña
               TextField(
                 controller: _passwordController,
-                obscureText: true, // Oculta la contraseña
+                obscureText: true, 
                 decoration: const InputDecoration(
                   labelText: 'Contraseña',
                   border: OutlineInputBorder(),
@@ -103,21 +158,29 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
               ),
               const SizedBox(height: 30),
               
-              // Botón de Inicio de Sesión
               ElevatedButton(
-                onPressed: _iniciarSesion,
+                onPressed: _isLoading ? null : _iniciarSesion,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 15),
                   textStyle: const TextStyle(fontSize: 18),
                 ),
-                child: const Text('Iniciar Sesión'),
+                child: _isLoading 
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                      )
+                    : const Text('Iniciar Sesión'),
               ),
               const SizedBox(height: 20),
 
               // Mensaje de Error
               Text(
                 _mensajeError,
-                style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: _mensajeError.contains('EXITOSO') ? Colors.green : Colors.red, 
+                  fontWeight: FontWeight.bold
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -127,5 +190,3 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
     );
   }
 }
-
-// NO OLVIDES PRESIONAR CTRL + S (O CMD + S) PARA GUARDAR EL ARCHIVO.
